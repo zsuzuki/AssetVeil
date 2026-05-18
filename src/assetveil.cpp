@@ -91,6 +91,11 @@ DataResult make_data_error(std::string message)
     return DataResult(Error{std::move(message)});
 }
 
+std::uint8_t runtime_key_mask(std::size_t index, std::uint64_t seed)
+{
+    return detail::key_mask(index, seed);
+}
+
 ByteVector read_all(const std::filesystem::path& path, std::string& error)
 {
     std::ifstream file(path, std::ios::binary);
@@ -334,6 +339,39 @@ bool Result::ok() const { return error_.empty(); }
 
 const std::string& Result::error() const { return error_; }
 
+void secure_clear(std::string& value)
+{
+    volatile char* data = value.empty() ? nullptr : &value[0];
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        data[i] = 0;
+    }
+    value.clear();
+}
+
+Key::Key(std::string_view plain)
+{
+    seed_ = make_nonce(plain, "assetveil-runtime-key", plain.size());
+    bytes_.resize(plain.size());
+    for (std::size_t i = 0; i < plain.size(); ++i) {
+        bytes_[i] = static_cast<std::uint8_t>(plain[i]) ^ runtime_key_mask(i, seed_);
+    }
+}
+
+std::string Key::reveal() const
+{
+    std::string plain;
+    plain.resize(bytes_.size());
+    for (std::size_t i = 0; i < bytes_.size(); ++i) {
+        plain[i] = static_cast<char>(bytes_[i] ^ runtime_key_mask(i, seed_));
+    }
+    return plain;
+}
+
+std::size_t Key::size() const
+{
+    return bytes_.size();
+}
+
 DataResult::DataResult(ByteVector data) : data_(std::move(data)) {}
 
 DataResult::DataResult(Error error) : error_(std::move(error.message)) {}
@@ -347,6 +385,12 @@ const ByteVector& DataResult::data() const { return data_; }
 ByteVector&& DataResult::take_data() { return std::move(data_); }
 
 PackReader::PackReader(const std::filesystem::path& pack_path, std::string key)
+    : PackReader(pack_path, Key(key))
+{
+    secure_clear(key);
+}
+
+PackReader::PackReader(const std::filesystem::path& pack_path, Key key)
     : pack_path_(pack_path), key_(std::move(key))
 {
     const auto data_result = read_pack_bytes(pack_path_);
@@ -404,7 +448,9 @@ DataResult PackReader::read(std::string_view virtual_path) const
     const auto begin = pack_data.begin() + static_cast<std::ptrdiff_t>(it->offset);
     const auto end = begin + static_cast<std::ptrdiff_t>(it->public_entry.stored_size);
     ByteVector payload(begin, end);
-    auto plain = transform_bytes(payload, key_, it->nonce);
+    auto revealed_key = key_.reveal();
+    auto plain = transform_bytes(payload, revealed_key, it->nonce);
+    secure_clear(revealed_key);
     if (fnv1a64(plain.data(), plain.size()) != it->public_entry.checksum) {
         return make_data_error("checksum mismatch; wrong key or corrupted pack entry: " + it->public_entry.path);
     }
@@ -470,6 +516,34 @@ Result decode_file(const std::filesystem::path& input_path,
     return write_all(output_path, decoded.data());
 }
 
+Result encode_file(const std::filesystem::path& input_path,
+                   const std::filesystem::path& output_path,
+                   const Key& key)
+{
+    auto revealed_key = key.reveal();
+    auto result = encode_file(input_path, output_path, revealed_key);
+    secure_clear(revealed_key);
+    return result;
+}
+
+Result decode_file(const std::filesystem::path& input_path,
+                   const std::filesystem::path& output_path,
+                   const Key& key)
+{
+    auto revealed_key = key.reveal();
+    auto result = decode_file(input_path, output_path, revealed_key);
+    secure_clear(revealed_key);
+    return result;
+}
+
+DataResult read_encoded_file(const std::filesystem::path& input_path, const Key& key)
+{
+    auto revealed_key = key.reveal();
+    auto result = read_encoded_file(input_path, revealed_key);
+    secure_clear(revealed_key);
+    return result;
+}
+
 Result pack_directory(const std::filesystem::path& input_dir,
                       const std::filesystem::path& output_pack,
                       std::string_view key)
@@ -528,11 +602,32 @@ Result pack_directory(const std::filesystem::path& input_dir,
     return write_all(output_pack, output);
 }
 
+Result pack_directory(const std::filesystem::path& input_dir,
+                      const std::filesystem::path& output_pack,
+                      const Key& key)
+{
+    auto revealed_key = key.reveal();
+    auto result = pack_directory(input_dir, output_pack, revealed_key);
+    secure_clear(revealed_key);
+    return result;
+}
+
 Result unpack_file(const std::filesystem::path& input_pack,
                    const std::filesystem::path& output_dir,
                    std::string_view key)
 {
     PackReader reader(input_pack, std::string(key));
+    if (!reader.ok()) {
+        return make_error(reader.error());
+    }
+    return reader.extract_all(output_dir);
+}
+
+Result unpack_file(const std::filesystem::path& input_pack,
+                   const std::filesystem::path& output_dir,
+                   const Key& key)
+{
+    PackReader reader(input_pack, key);
     if (!reader.ok()) {
         return make_error(reader.error());
     }

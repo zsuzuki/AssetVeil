@@ -52,6 +52,21 @@ assetveil::PackReader pack("game_assets.avp", "my-key");
 auto player = pack.read("textures/player.png");
 ```
 
+## Key Obfuscation Helper
+
+For keys embedded in C++ code, `KeyGen` can keep the literal from being stored
+as a plain member value after construction.
+
+```cpp
+constexpr auto key = assetveil::KeyGen("my-key");
+
+auto decoded = assetveil::read_encoded_file("texture.png.av", key);
+assetveil::PackReader pack("game_assets.avp", key);
+```
+
+This is still only a light obfuscation helper. The key must be revealed briefly
+when decoding, and a determined attacker can recover it from the program.
+
 ## Security Note
 
 AssetVeil is a deterrent and convenience layer, not a cryptographic security

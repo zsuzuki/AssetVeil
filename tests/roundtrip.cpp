@@ -39,7 +39,11 @@ int main()
     const auto plain = root / "plain.txt";
     const auto encoded = root / "plain.txt.av";
     const auto decoded = root / "decoded.txt";
-    constexpr auto key = "test-key";
+    constexpr auto key = assetveil::KeyGen("test-key");
+
+    if (!require(key.reveal() == "test-key", "KeyGen reveal did not match")) {
+        return 1;
+    }
 
     if (!require(write_text(plain, "hello asset veil\n"), "failed to write fixture")) {
         return 1;

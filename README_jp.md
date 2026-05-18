@@ -46,6 +46,19 @@ assetveil::PackReader pack("game_assets.avp", "my-key");
 auto player = pack.read("textures/player.png");
 ```
 
+## キー難読化ヘルパー
+
+C++ コードに埋め込むキーには `KeyGen` を使えます。文字列リテラルをそのままメンバー値として保持せず、コンパイル時に軽く変換した状態で持つための補助です。
+
+```cpp
+constexpr auto key = assetveil::KeyGen("my-key");
+
+auto decoded = assetveil::read_encoded_file("texture.png.av", key);
+assetveil::PackReader pack("game_assets.avp", key);
+```
+
+これはあくまで軽い難読化です。デコード時には一時的にキーを復元する必要があり、十分な動機を持った解析者からキーを完全に隠すものではありません。
+
 ## セキュリティについて
 
 AssetVeil は、攻撃を完全に防ぐための暗号境界ではありません。ゲーム本体にキーと復号コードが含まれる以上、十分な動機を持った解析者はアセットを復元できます。
