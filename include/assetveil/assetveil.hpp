@@ -118,6 +118,7 @@ struct PackEntry {
     std::string path;
     std::uint64_t original_size = 0;
     std::uint64_t stored_size = 0;
+    // Kept for source compatibility; v2 uses authentication tags, so this is always zero.
     std::uint64_t checksum = 0;
 };
 
@@ -143,11 +144,14 @@ private:
     Key key_;
     std::vector<PackEntry> entries_;
     std::vector<std::uint64_t> data_offsets_;
+    std::vector<std::array<std::uint8_t, 24>> nonces_;
+    std::array<std::uint8_t, 32> manifest_digest_{};
     std::string error_;
 };
 
-[[nodiscard]] ByteVector obfuscate_bytes(const ByteVector& input, std::string_view key, std::uint64_t nonce);
-[[nodiscard]] ByteVector deobfuscate_bytes(const ByteVector& input, std::string_view key, std::uint64_t nonce);
+// Self-contained v2 data: random nonce, authenticated header, ciphertext and tag.
+[[nodiscard]] DataResult encrypt_bytes(const ByteVector& input, std::string_view key);
+[[nodiscard]] DataResult decrypt_bytes(const ByteVector& input, std::string_view key);
 
 [[nodiscard]] Result encode_file(const std::filesystem::path& input_path,
                                  const std::filesystem::path& output_path,

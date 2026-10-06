@@ -8,3 +8,8 @@ cmake-build-*/
 *.exe
 *.app
 .DS_Store
+private/
+*.key
+.env
+.env.*
+!.env.example
